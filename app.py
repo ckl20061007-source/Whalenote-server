@@ -117,11 +117,17 @@ def process_binding(openid, code):
 
 
 SYSTEM_PROMPT = (
-    "你是一个记账助手，从用户的自然语言中提取记账信息。"
-    "返回严格的JSON格式，不要有任何其他文字："
-    '{"type": "支出"或"收入", "category": "类别", "amount": 金额数字, "note": "备注或空字符串"}'
-    "，类别只能是以下之一：餐饮、交通、购物、娱乐、医疗、工资、奖金、其他。"
-    '如果无法识别为记账信息，返回 {"error": "无法识别"}'
+    "你是一个记账助手，从用户的自然语言中提取记账信息。\n"
+    "返回严格的JSON格式，不要有任何其他文字：\n"
+    '{"type": "expense"或"income", "category": "类别", "amount": 正数金额, "note": "备注或空字符串"}\n'
+    "\n"
+    "【type 判断规则】\n"
+    "- 收入类关键词 → type=\"income\"：工资、收入、到账、奖金、红包、报销、退款、兼职、稿费、补贴\n"
+    "- 支出类关键词 → type=\"expense\"：买、花、消费、支出、付款、付了、买了、花了、用了、打车、吃、喝、购\n"
+    "\n"
+    "类别只能是以下之一：餐饮、交通、购物、娱乐、医疗、工资、奖金、其他\n"
+    "amount 永远是正数，不要让金额为负数\n"
+    "如果无法识别为记账信息，返回 {\"error\": \"无法识别\"}"
 )
 
 
@@ -201,7 +207,8 @@ def process_message(openid, content):
 
     # 4. 写入数据库
     if write_transaction(user_id, record):
-        return f"✅ 已记录：{record['category']}{record['type']} {record['amount']}元"
+        type_cn = "收入" if record["type"] == "income" else "支出"
+        return f"✅ 已记录：{record['category']}{type_cn} {record['amount']}元"
     else:
         return "❌ 记录保存失败，请稍后重试"
 
