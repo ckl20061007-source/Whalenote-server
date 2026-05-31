@@ -13,7 +13,7 @@ import re
 import json
 import hashlib
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from xml.etree import ElementTree as ET
 
 import requests
@@ -83,14 +83,14 @@ def process_binding(openid, code):
     3. 标记 used = true
     """
     try:
-        # 查有效绑定码（created_at 是毫秒时间戳）
-        cutoff_ms = int((time.time() - BINDING_EXPIRE_MINUTES * 60) * 1000)
-        print(f"[绑定] code={code} cutoff_ms={cutoff_ms}")
+        # 查有效绑定码（created_at 是 TIMESTAMPTZ，用 ISO 格式比较）
+        cutoff = (datetime.now(timezone.utc) - timedelta(minutes=BINDING_EXPIRE_MINUTES)).isoformat()
+        print(f"[绑定] code={code} cutoff={cutoff}")
         resp = supabase.table("binding_codes") \
             .select("*") \
             .eq("code", code) \
             .eq("used", False) \
-            .gte("created_at", cutoff_ms) \
+            .gte("created_at", cutoff) \
             .execute()
 
         if not resp.data:
@@ -100,7 +100,7 @@ def process_binding(openid, code):
 
         # 写入绑定关系（upsert：重复绑定则覆盖）
         supabase.table("wechat_bindings") \
-            .upsert({"openid": openid, "user_id": user_id, "bound_at": datetime.utcnow().isoformat()}) \
+            .upsert({"openid": openid, "user_id": user_id, "bound_at": datetime.now(timezone.utc).isoformat()}) \
             .execute()
 
         # 标记绑定码已使用
