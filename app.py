@@ -13,7 +13,7 @@ import re
 import json
 import hashlib
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from xml.etree import ElementTree as ET
 
 import requests
@@ -83,13 +83,14 @@ def process_binding(openid, code):
     3. 标记 used = true
     """
     try:
-        # 查有效绑定码
-        cutoff = (datetime.utcnow() - timedelta(minutes=BINDING_EXPIRE_MINUTES)).isoformat()
+        # 查有效绑定码（created_at 是毫秒时间戳）
+        cutoff_ms = int((time.time() - BINDING_EXPIRE_MINUTES * 60) * 1000)
+        print(f"[绑定] code={code} cutoff_ms={cutoff_ms}")
         resp = supabase.table("binding_codes") \
             .select("*") \
             .eq("code", code) \
             .eq("used", False) \
-            .gte("created_at", cutoff) \
+            .gte("created_at", cutoff_ms) \
             .execute()
 
         if not resp.data:
@@ -245,6 +246,8 @@ def wechat_message():
     except ET.ParseError:
         return make_response("success", 200)
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         print(f"[POST /wechat 错误] {e}")
         return make_response("success", 200)
 
