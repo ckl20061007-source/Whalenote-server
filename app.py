@@ -33,7 +33,7 @@ DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 
 DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions"
 DEEPSEEK_MODEL = "deepseek-v4-flash"
-DEEPSEEK_TIMEOUT = 4  # 秒 — 必须在 5 秒内回复微信
+DEEPSEEK_TIMEOUT = 8  # 秒
 
 BINDING_CODE_RE = re.compile(r"^绑定\s*([A-Z0-9]{6})$")  # 匹配"绑定 XXXXXX"
 BINDING_EXPIRE_MINUTES = 10  # 绑定码有效期
@@ -117,17 +117,28 @@ def process_binding(openid, code):
 
 
 SYSTEM_PROMPT = (
-    "你是一个记账助手，从用户的自然语言中提取记账信息。\n"
-    "返回严格的JSON格式，不要有任何其他文字：\n"
+    "你是鲸记App的智能助手小鲸，既能帮用户记账，也能正常聊天。\n"
+    "\n"
+    "【判断逻辑】\n"
+    "如果用户消息包含金额和收支信息，返回严格JSON（不要有任何其他文字）：\n"
     '{"type": "expense"或"income", "category": "类别", "amount": 正数金额, "note": "备注或空字符串"}\n'
+    "类别只能是：餐饮、交通、购物、娱乐、医疗、工资、奖金、其他\n"
     "\n"
-    "【type 判断规则】\n"
-    "- 收入类关键词 → type=\"income\"：工资、收入、到账、奖金、红包、报销、退款、兼职、稿费、补贴\n"
-    "- 支出类关键词 → type=\"expense\"：买、花、消费、支出、付款、付了、买了、花了、用了、打车、吃、喝、购\n"
+    "如果用户是在闲聊、问候、询问功能，返回严格JSON：\n"
+    '{"type": "chat", "reply": "你的回复内容"}\n'
     "\n"
-    "类别只能是以下之一：餐饮、交通、购物、娱乐、医疗、工资、奖金、其他\n"
-    "amount 永远是正数，不要让金额为负数\n"
-    "如果无法识别为记账信息，返回 {\"error\": \"无法识别\"}"
+    "【记账示例】\n"
+    "买咖啡35元 → expense 餐饮\n"
+    "打车回家20块 → expense 交通\n"
+    "工资到账6000 → income 工资\n"
+    "转账给朋友200 → expense 其他\n"
+    "奖金3000入账 → income 奖金\n"
+    "\n"
+    "【闲聊示例】\n"
+    "你好/介绍一下自己 → chat，介绍自己是鲸记记账助手，可以帮用户记账\n"
+    "怎么用/有什么功能 → chat，说明直接发消息如'餐饮支出35元'即可记账\n"
+    "\n"
+    "amount 永远是正数。只返回JSON，不要有任何其他文字。"
 )
 
 
@@ -147,7 +158,7 @@ def parse_with_deepseek(msg):
                     {"role": "user", "content": msg},
                 ],
                 "temperature": 0,
-                "max_tokens": 200,
+                "max_tokens": 150,
             },
             timeout=DEEPSEEK_TIMEOUT,
         )
@@ -155,7 +166,7 @@ def parse_with_deepseek(msg):
         raw = data["choices"][0]["message"]["content"].strip()
 
         # 提取 JSON（去掉可能的 markdown 反引号）
-        json_match = re.search(r'\{[^}]*\}', raw)
+        json_match = re.search(r'\{.*\}', raw, re.DOTALL)
         if json_match:
             return json.loads(json_match.group())
     except requests.Timeout:
@@ -205,7 +216,11 @@ def process_message(openid, content):
     if not record or "error" in record:
         return "😅 没看懂这条消息，试试这样说：餐饮支出35元"
 
-    # 4. 写入数据库
+    # 4. chat 类型直接返回 DeepSeek 的回复
+    if record.get("type") == "chat":
+        return record.get("reply", "我是鲸记助手，发送记账消息即可记账，例如：餐饮支出35元")
+
+    # 5. 写入数据库
     if write_transaction(user_id, record):
         type_cn = "收入" if record["type"] == "income" else "支出"
         return f"✅ 已记录：{record['category']}{type_cn} {record['amount']}元"
